@@ -1,0 +1,45 @@
+[Unit]
+Description=BenEgeDeniz Sirius Agent API
+Documentation=https://github.com/your-org/sirius-agent
+After=network-online.target redis-server.service
+Requires=redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sirius-agent
+Group=sirius-agent
+EnvironmentFile=/etc/sirius-agent/env
+ExecStart=/usr/local/bin/sirius-api
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sirius-api
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/log/sirius-agent
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

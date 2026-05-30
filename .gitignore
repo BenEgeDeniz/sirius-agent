@@ -1,0 +1,20 @@
+# Binaries
+/dist/
+/api/sirius-api
+/api/sirius-agent
+
+# Environment variables
+.env
+/systemd/*.env
+/systemd/env
+dns-credentials.ini
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Go
+/api/vendor/
