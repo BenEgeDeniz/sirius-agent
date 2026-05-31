@@ -458,8 +458,7 @@ ExecStart=
 ExecStart=/usr/local/openresty/bin/openresty -c $NGINX_CONF_DIR/nginx.conf
 ExecReload=
 ExecReload=/usr/local/openresty/nginx/sbin/nginx -c $NGINX_CONF_DIR/nginx.conf -s reload
-Environment=REDIS_PASSWORD=$REDIS_PASSWORD
-Environment=PROXY_RATE_LIMIT_RPM=600
+EnvironmentFile=$ENV_FILE
 EOF
 
 log_ok "OpenResty configured"
