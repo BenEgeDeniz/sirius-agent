@@ -12,6 +12,11 @@ type CreateTunnelRequest struct {
 	AllowedIPs []string `json:"allowed_ips,omitempty"` // IPs or ["any"], defaults to ["any"]
 }
 
+// ExtendTunnelRequest is the expected JSON body for extending a tunnel's duration.
+type ExtendTunnelRequest struct {
+	AdditionalMinutes int `json:"additional_minutes"` // positive integer, minutes to add
+}
+
 // RegisterHandlers sets up all HTTP routes on the provided mux.
 func RegisterHandlers(mux *http.ServeMux, svc *TunnelService, rdb *RedisClient, cfg *Config, logger *Logger) {
 	// Health check - no auth required
@@ -21,6 +26,7 @@ func RegisterHandlers(mux *http.ServeMux, svc *TunnelService, rdb *RedisClient, 
 	tunnelMux := http.NewServeMux()
 	tunnelMux.HandleFunc("POST /api/tunnels", handleCreateTunnel(svc, logger))
 	tunnelMux.HandleFunc("GET /api/tunnels", handleListTunnels(svc))
+	tunnelMux.HandleFunc("PATCH /api/tunnels/{subdomain}", handleExtendTunnel(svc, logger))
 	tunnelMux.HandleFunc("DELETE /api/tunnels/{subdomain}", handleDeleteTunnel(svc, logger))
 
 	// Apply auth + rate limit middleware to tunnel endpoints
@@ -92,6 +98,61 @@ func handleCreateTunnel(svc *TunnelService, logger *Logger) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusCreated, tunnel)
+	}
+}
+
+// handleExtendTunnel extends the duration of an active tunnel.
+func handleExtendTunnel(svc *TunnelService, logger *Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		subdomain := r.PathValue("subdomain")
+		if subdomain == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "subdomain is required",
+			})
+			return
+		}
+
+		var req ExtendTunnelRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid JSON body",
+			})
+			return
+		}
+
+		if req.AdditionalMinutes <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "additional_minutes is required and must be a positive integer",
+			})
+			return
+		}
+
+		tunnel, err := svc.ExtendTunnel(r.Context(), subdomain, req.AdditionalMinutes)
+		if err != nil {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "not found") {
+				writeJSON(w, http.StatusNotFound, map[string]string{
+					"error": errMsg,
+				})
+				return
+			}
+			if strings.Contains(errMsg, "invalid") ||
+				strings.Contains(errMsg, "already unlimited") ||
+				strings.Contains(errMsg, "already expired") ||
+				strings.Contains(errMsg, "would exceed") {
+				writeJSON(w, http.StatusBadRequest, map[string]string{
+					"error": errMsg,
+				})
+				return
+			}
+			logger.Error("tunnel extension failed", "error", err, "subdomain", subdomain)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "internal server error",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, tunnel)
 	}
 }
 

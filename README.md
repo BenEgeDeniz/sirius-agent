@@ -51,6 +51,12 @@ curl -X POST https://agent.example.com/api/tunnels \
   -H 'Authorization: Bearer YOUR_API_KEY' \
   -H 'Content-Type: application/json' \
   -d '{"duration": -1}'
+
+# Extend a tunnel by 30 minutes
+curl -X PATCH https://agent.example.com/api/tunnels/brave-fox-a3f1 \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"additional_minutes": 30}'
 ```
 
 Response:
@@ -72,6 +78,7 @@ Response:
 |--------|------|------|-------------|
 | `POST` | `/api/tunnels` | Bearer key | Create tunnel |
 | `GET` | `/api/tunnels` | Bearer key | List active tunnels |
+| `PATCH` | `/api/tunnels/{subdomain}` | Bearer key | Extend tunnel duration |
 | `DELETE` | `/api/tunnels/{subdomain}` | Bearer key | Revoke tunnel |
 | `GET` | `/api/health` | None | Health check |
 
@@ -100,6 +107,7 @@ sirius_agent/
 
 ## Docs
 
+- [API Reference](docs/API_REFERENCE.md)
 - [Setup](docs/SETUP.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security](docs/SECURITY.md)

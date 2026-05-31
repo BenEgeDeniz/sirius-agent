@@ -28,6 +28,7 @@ Admin → OpenResty (:443) → /api/* → Go API (:8181) → Redis
 - Listens on `127.0.0.1:8181`
 - Bearer key auth (constant-time comparison)
 - Tunnel durations: configurable limits (default 1–1440 min), or `-1` for unlimited
+- Tunnel extension: `PATCH` endpoint to add time, capped by `MAX_TUNNEL_DURATION`
 - Per-IP rate limiting via Redis (`RATE_LIMIT_RPM`, default 30 req/min)
 - Structured JSON logs → journald
 - Static binary, no runtime deps

@@ -80,6 +80,12 @@ curl -X POST https://your-domain.xyz/api/tunnels \
 
 curl -X DELETE https://your-domain.xyz/api/tunnels/SUBDOMAIN \
   -H 'Authorization: Bearer YOUR_KEY'
+
+# Extend a tunnel by 15 minutes
+curl -X PATCH https://your-domain.xyz/api/tunnels/SUBDOMAIN \
+  -H 'Authorization: Bearer YOUR_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"additional_minutes": 15}'
 ```
 
 ## 6. Verify Upstream
@@ -99,7 +105,7 @@ All runtime configurations are stored in `/etc/sirius-agent/env`. If you edit th
 ### Tunnel Limits
 - `MAX_TUNNELS`: Maximum number of concurrent tunnels (default: `50`)
 - `MIN_TUNNEL_DURATION`: Minimum allowed tunnel duration in minutes (default: `1`)
-- `MAX_TUNNEL_DURATION`: Maximum allowed tunnel duration in minutes. Set to `-1` to allow unlimited tunnels (default: `1440` which is 24 hours).
+- `MAX_TUNNEL_DURATION`: Maximum allowed tunnel duration in minutes. This also caps extensions — the total lifetime from creation cannot exceed this value. Set to `-1` to allow unlimited tunnels (default: `1440` which is 24 hours).
 
 ### Rate Limits
 - `RATE_LIMIT_RPM`: Management API rate limit per IP. Low value prevents API spam (default: `30`)

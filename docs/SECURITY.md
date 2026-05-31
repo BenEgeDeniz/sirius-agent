@@ -63,7 +63,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 ```
 
 ## Audit Log Events
-Auth failures, rate limit hits, tunnel create/delete, IP denials, proxy errors - all structured JSON via journald.
+Auth failures, rate limit hits, tunnel create/extend/delete, IP denials, proxy errors - all structured JSON via journald.
 
 ## Hardening Checklist
 1. SSH key auth, disable password login

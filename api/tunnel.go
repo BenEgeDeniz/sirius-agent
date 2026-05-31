@@ -221,3 +221,90 @@ func (s *TunnelService) GetTunnel(ctx context.Context, subdomain string) (*Tunne
 
 	return &tunnel, nil
 }
+
+// ExtendTunnel extends the expiration of an active tunnel by the given additional minutes.
+// The total tunnel lifetime (from creation) must not exceed MaxTunnelDuration unless it is -1 (unlimited).
+func (s *TunnelService) ExtendTunnel(ctx context.Context, subdomain string, additionalMinutes int) (*TunnelInfo, error) {
+	if !ValidateSubdomain(subdomain) {
+		return nil, fmt.Errorf("invalid subdomain format")
+	}
+
+	if additionalMinutes <= 0 {
+		return nil, fmt.Errorf("invalid extension: additional minutes must be a positive integer")
+	}
+
+	// Retrieve existing tunnel
+	data, err := s.redis.Get(ctx, "tunnel:"+subdomain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tunnel: %w", err)
+	}
+	if data == "" {
+		return nil, fmt.Errorf("tunnel not found: %s", subdomain)
+	}
+
+	var tunnel TunnelInfo
+	if err := json.Unmarshal([]byte(data), &tunnel); err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel data: %w", err)
+	}
+
+	// Cannot extend an already-unlimited tunnel
+	if tunnel.Duration == -1 {
+		return nil, fmt.Errorf("tunnel is already unlimited, no extension needed")
+	}
+
+	now := time.Now().UTC()
+	createdAt, err := time.Parse(time.RFC3339, tunnel.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel creation time: %w", err)
+	}
+
+	// Current expiration
+	currentExpiresAt, err := time.Parse(time.RFC3339, tunnel.ExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel expiration time: %w", err)
+	}
+
+	// The new expiration time
+	newExpiresAt := currentExpiresAt.Add(time.Duration(additionalMinutes) * time.Minute)
+
+	// Enforce max tunnel duration: total lifetime from creation cannot exceed max
+	if s.config.MaxTunnelDuration != -1 {
+		maxExpiresAt := createdAt.Add(time.Duration(s.config.MaxTunnelDuration) * time.Minute)
+		if newExpiresAt.After(maxExpiresAt) {
+			return nil, fmt.Errorf("invalid extension: total tunnel duration would exceed maximum of %d minutes", s.config.MaxTunnelDuration)
+		}
+	}
+
+	// If the tunnel has already expired, reject
+	if currentExpiresAt.Before(now) {
+		return nil, fmt.Errorf("tunnel has already expired")
+	}
+
+	// Calculate the new total duration in minutes (from creation)
+	newDuration := int(newExpiresAt.Sub(createdAt).Minutes())
+
+	// Update tunnel info
+	tunnel.ExpiresAt = newExpiresAt.Format(time.RFC3339)
+	tunnel.Duration = newDuration
+
+	// Serialize and store
+	updatedData, err := json.Marshal(&tunnel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tunnel: %w", err)
+	}
+
+	// Calculate new Redis TTL (time remaining from now)
+	newTTL := newExpiresAt.Sub(now)
+	if err := s.redis.Set(ctx, "tunnel:"+subdomain, string(updatedData), newTTL); err != nil {
+		return nil, fmt.Errorf("failed to update tunnel: %w", err)
+	}
+
+	s.logger.Info("tunnel extended",
+		"subdomain", subdomain,
+		"additional_minutes", additionalMinutes,
+		"new_duration", newDuration,
+		"new_expires_at", tunnel.ExpiresAt,
+	)
+
+	return &tunnel, nil
+}

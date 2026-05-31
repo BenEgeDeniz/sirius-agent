@@ -114,6 +114,16 @@ func (r *RedisClient) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
 
+// Expire sets a new TTL on a key.
+func (r *RedisClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	return r.client.Expire(ctx, key, ttl).Err()
+}
+
+// Persist removes the TTL from a key, making it permanent.
+func (r *RedisClient) Persist(ctx context.Context, key string) error {
+	return r.client.Persist(ctx, key).Err()
+}
+
 // Close closes the Redis connection.
 func (r *RedisClient) Close() error {
 	return r.client.Close()
