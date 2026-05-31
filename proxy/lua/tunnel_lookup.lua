@@ -11,7 +11,7 @@ local cjson = require "cjson.safe"
 -- RATE LIMITING (in-process, no Redis needed)
 -- ============================================================
 local limit_store = ngx.shared.rate_limit_store
-local PROXY_RATE_LIMIT = 120  -- requests per minute per IP
+local PROXY_RATE_LIMIT = PROXY_RATE_LIMIT_RPM or 600  -- from env, default 600 req/min
 local WINDOW_SECONDS = 60
 
 local client_ip = ngx.var.remote_addr

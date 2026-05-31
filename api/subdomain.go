@@ -9,7 +9,7 @@ import (
 )
 
 // Curated word lists for subdomain generation.
-// These are intentionally safe, neutral words — no offensive or confusing terms.
+// These are intentionally safe, neutral words - no offensive or confusing terms.
 var adjectives = []string{
 	"brave", "calm", "cool", "dark", "deep",
 	"fair", "fast", "firm", "free", "gold",

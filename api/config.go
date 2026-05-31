@@ -25,7 +25,9 @@ type Config struct {
 	ListenAddr string
 
 	// Tunnel limits
-	MaxTunnels int
+	MaxTunnels        int
+	MinTunnelDuration int // default 1 minute
+	MaxTunnelDuration int // default 1440 minutes, -1 for unlimited
 
 	// Rate limiting
 	RateLimitRPM int // requests per minute per IP
@@ -43,8 +45,10 @@ func LoadConfig() (*Config, error) {
 		BaseDomain:    os.Getenv("BASE_DOMAIN"),
 		UpstreamURL:   os.Getenv("UPSTREAM_URL"),
 		ListenAddr:    envOrDefault("LISTEN_ADDR", "127.0.0.1:8181"),
-		MaxTunnels:    envOrDefaultInt("MAX_TUNNELS", 50),
-		RateLimitRPM:  envOrDefaultInt("RATE_LIMIT_RPM", 30),
+		MaxTunnels:        envOrDefaultInt("MAX_TUNNELS", 50),
+		MinTunnelDuration: envOrDefaultInt("MIN_TUNNEL_DURATION", 1),
+		MaxTunnelDuration: envOrDefaultInt("MAX_TUNNEL_DURATION", 1440),
+		RateLimitRPM:      envOrDefaultInt("RATE_LIMIT_RPM", 30),
 		LogLevel:      envOrDefault("LOG_LEVEL", "info"),
 	}
 

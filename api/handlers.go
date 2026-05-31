@@ -8,13 +8,13 @@ import (
 
 // CreateTunnelRequest is the expected JSON body for tunnel creation.
 type CreateTunnelRequest struct {
-	Duration   int      `json:"duration"`             // minutes, -1 = unlimited
+	Duration   int      `json:"duration"`              // minutes, -1 = unlimited
 	AllowedIPs []string `json:"allowed_ips,omitempty"` // IPs or ["any"], defaults to ["any"]
 }
 
 // RegisterHandlers sets up all HTTP routes on the provided mux.
 func RegisterHandlers(mux *http.ServeMux, svc *TunnelService, rdb *RedisClient, cfg *Config, logger *Logger) {
-	// Health check — no auth required
+	// Health check - no auth required
 	mux.HandleFunc("GET /api/health", handleHealth(rdb))
 
 	// Protected tunnel endpoints
@@ -65,7 +65,7 @@ func handleCreateTunnel(svc *TunnelService, logger *Logger) http.HandlerFunc {
 			return
 		}
 
-		// Duration 0 is not valid — must be -1 (unlimited) or positive minutes
+		// Duration 0 is not valid - must be -1 (unlimited) or positive minutes
 		if req.Duration == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "duration is required: positive integer (minutes) or -1 for unlimited",

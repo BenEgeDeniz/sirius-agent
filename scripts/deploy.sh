@@ -19,33 +19,18 @@ bash "$SCRIPT_DIR/build.sh"
 echo ""
 echo "==> Deploying to $TARGET..."
 
-# Upload binary
-echo "  → Uploading binary..."
-scp "$PROJECT_DIR/dist/sirius-api" "$TARGET:/usr/local/bin/sirius-api"
-ssh "$TARGET" "chmod 755 /usr/local/bin/sirius-api"
+REMOTE_DIR="/root/sirius-agent"
 
-# Upload config files (only if they don't exist on remote)
-echo "  → Uploading configuration templates..."
-ssh "$TARGET" "mkdir -p /opt/sirius-agent/lua /etc/sirius-agent/nginx/conf.d"
+echo "  → Creating remote directory..."
+ssh "$TARGET" "mkdir -p $REMOTE_DIR"
 
-scp "$PROJECT_DIR/proxy/lua/tunnel_lookup.lua" "$TARGET:/opt/sirius-agent/lua/"
-scp "$PROJECT_DIR/proxy/lua/rate_limit.lua" "$TARGET:/opt/sirius-agent/lua/"
-
-# Upload nginx configs (will need template vars replaced)
-scp "$PROJECT_DIR/proxy/nginx.conf" "$TARGET:/etc/sirius-agent/nginx/nginx.conf"
-scp "$PROJECT_DIR/proxy/conf.d/proxy.conf" "$TARGET:/etc/sirius-agent/nginx/conf.d/proxy.conf"
-scp "$PROJECT_DIR/proxy/conf.d/api.conf" "$TARGET:/etc/sirius-agent/nginx/conf.d/api.conf"
-
-# Upload systemd service
-scp "$PROJECT_DIR/systemd/sirius-api.service" "$TARGET:/etc/systemd/system/sirius-api.service"
-
-# Restart services
-echo "  → Restarting services..."
-ssh "$TARGET" "systemctl daemon-reload && systemctl restart sirius-api && systemctl reload openresty"
-
-# Health check
-echo "  → Running health check..."
-ssh "$TARGET" "curl -sf http://127.0.0.1:8181/api/health || echo 'WARNING: Health check failed'"
+echo "  → Uploading project files..."
+rsync -avz --delete --exclude '.git' --exclude '.idea' --exclude '.vscode' "$PROJECT_DIR/" "$TARGET:$REMOTE_DIR/"
 
 echo ""
 echo "==> Deployment complete."
+echo "The project files and built binary are now on the remote server."
+echo "To install or update, connect to the server and run:"
+echo "  ssh $TARGET"
+echo "  cd $REMOTE_DIR"
+echo "  bash install.sh"

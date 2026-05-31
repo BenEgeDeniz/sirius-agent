@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# BenEgeDeniz Sirius Agent — Uninstaller
+# BenEgeDeniz Sirius Agent - Uninstaller
 # ============================================================
 # Removes the sirius agent system from the server.
 #
@@ -67,7 +67,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║       BenEgeDeniz Sirius Agent — Uninstaller             ║${NC}"
+echo -e "${BOLD}║       BenEgeDeniz Sirius Agent - Uninstaller             ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -136,6 +136,12 @@ log_ok "Removed $CONFIG_DIR"
 rm -rf "$INSTALL_DIR"
 log_ok "Removed $INSTALL_DIR"
 
+rm -rf /var/www/certbot
+log_ok "Removed /var/www/certbot"
+
+rm -f /etc/logrotate.d/sirius-agent
+log_ok "Removed logrotate config (if any)"
+
 # ---- Remove Redis Overrides ----
 echo ""
 echo -e "${BOLD}==> Removing Redis overrides${NC}"
@@ -187,11 +193,13 @@ if [[ "$PURGE" == true ]]; then
     rm -f /etc/letsencrypt/renewal-hooks/deploy/reload-openresty.sh 2>/dev/null || true
     log_ok "TLS certificates removed"
 
-    # Remove packages (ask first unless --force)
+    # Remove packages and repos (ask first unless --force)
     if [[ "$FORCE" == true ]] || { read -rp "Remove Redis and OpenResty packages? [y/N] " pkg_confirm && [[ "$pkg_confirm" =~ ^[Yy]$ ]]; }; then
         apt-get remove -y --purge openresty 2>/dev/null || true
+        rm -f /etc/apt/sources.list.d/openresty.list 2>/dev/null || true
+        rm -f /usr/share/keyrings/openresty.gpg 2>/dev/null || true
         # Don't auto-remove Redis as other services might use it
-        log_ok "Packages removed"
+        log_ok "Packages and apt repos removed"
     fi
 fi
 

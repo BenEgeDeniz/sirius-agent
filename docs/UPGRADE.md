@@ -26,7 +26,7 @@ ssh root@YOUR_VPS "systemctl reload openresty"
 
 ## Nginx Config
 
-> **Warning**: configs have template variables (`__BASE_DOMAIN__`, `__UPSTREAM_URL__`). Don't copy them raw — re-run the installer instead:
+> **Warning**: configs have template variables (`__BASE_DOMAIN__`, `__UPSTREAM_URL__`). Don't copy them raw - re-run the installer instead:
 
 ```bash
 cd /root/sirius-agent-src && bash install.sh

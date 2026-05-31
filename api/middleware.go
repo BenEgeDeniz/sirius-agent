@@ -102,7 +102,7 @@ func RateLimitMiddleware(rdb *RedisClient, rpm int, logger *Logger, next http.Ha
 
 		count, err := rdb.Increment(ctx, key, time.Minute)
 		if err != nil {
-			// Fail open — don't block requests if Redis is having issues
+			// Fail open - don't block requests if Redis is having issues
 			logger.Error("rate limit check failed", "error", err, "ip", ip)
 			next.ServeHTTP(w, r)
 			return

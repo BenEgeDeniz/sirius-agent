@@ -14,32 +14,32 @@
 ## Controls
 
 ### Authentication
-- `Authorization: Bearer <key>` — 256-bit hex keys from `/dev/urandom`
+- `Authorization: Bearer <key>` - 256-bit hex keys from `/dev/urandom`
 - Constant-time comparison (`crypto/subtle`)
 - Multiple keys supported (comma-separated) for zero-downtime rotation
 - Stored in `/etc/sirius-agent/env` (chmod 600)
 
 ### Anti-SSRF
-Upstream is hardcoded in nginx at install time via `proxy_pass`. Users control only `duration` and `allowed_ips` — they cannot influence the upstream target.
+Upstream is hardcoded in nginx at install time via `proxy_pass`. Users control only `duration` and `allowed_ips` - they cannot influence the upstream target.
 
 ### Rate Limiting
 
-| Layer | Limit | Storage |
-|-------|-------|---------|
-| Proxy (Lua, `tunnel_lookup.lua`) | 120 req/min/IP | `lua_shared_dict` |
-| API (Go) | 30 req/min/IP | Redis |
+| Layer | Default | Env Var | Storage |
+|-------|---------|---------|---------|
+| Proxy (Lua, `tunnel_lookup.lua`) | 600 req/min/IP | `PROXY_RATE_LIMIT_RPM` | `lua_shared_dict` |
+| API (Go) | 30 req/min/IP | `RATE_LIMIT_RPM` | Redis |
 
 Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`
 
 ### Subdomains
-`{adj}-{noun}-{4hex}` — 212M+ combinations, generated with `crypto/rand`, collision-checked against Redis.
+`{adj}-{noun}-{4hex}` - 212M+ combinations, generated with `crypto/rand`, collision-checked against Redis.
 
 ### IP Access Control
 Per-tunnel `allowed_ips` list enforced in `tunnel_lookup.lua` before proxying. Defaults to `["any"]`.
 
 ### Network
-- Go API: `127.0.0.1:8181` — localhost only
-- Redis: `127.0.0.1:6379` — localhost only
+- Go API: `127.0.0.1:8181` - localhost only
+- Redis: `127.0.0.1:6379` - localhost only
 - UFW: only 22, 80, 443 open; 6379 explicitly denied
 
 ### TLS
@@ -63,7 +63,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 ```
 
 ## Audit Log Events
-Auth failures, rate limit hits, tunnel create/delete, IP denials, proxy errors — all structured JSON via journald.
+Auth failures, rate limit hits, tunnel create/delete, IP denials, proxy errors - all structured JSON via journald.
 
 ## Hardening Checklist
 1. SSH key auth, disable password login

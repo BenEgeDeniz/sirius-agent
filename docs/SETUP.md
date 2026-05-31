@@ -92,9 +92,33 @@ tailscale status
 dig upstream-server @100.100.100.100
 ```
 
+## 7. Configuration
+
+All runtime configurations are stored in `/etc/sirius-agent/env`. If you edit this file, you must restart the relevant services to apply the changes.
+
+### Tunnel Limits
+- `MAX_TUNNELS`: Maximum number of concurrent tunnels (default: `50`)
+- `MIN_TUNNEL_DURATION`: Minimum allowed tunnel duration in minutes (default: `1`)
+- `MAX_TUNNEL_DURATION`: Maximum allowed tunnel duration in minutes. Set to `-1` to allow unlimited tunnels (default: `1440` which is 24 hours).
+
+### Rate Limits
+- `RATE_LIMIT_RPM`: Management API rate limit per IP. Low value prevents API spam (default: `30`)
+- `PROXY_RATE_LIMIT_RPM`: Tunnel traffic proxy rate limit per IP. High value ensures web pages load correctly (default: `600`)
+
+### Applying Changes
+After saving your changes to `/etc/sirius-agent/env`:
+
+```bash
+# Apply tunnel limit and API rate limit changes
+systemctl restart sirius-api
+
+# Apply proxy rate limit changes
+systemctl restart openresty
+```
+
 ## DNS Examples
 
-**Cloudflare** — add two A records (Proxy: OFF):
+**Cloudflare** - add two A records (Proxy: OFF):
 - `agent.example.com → VPS_IP`
 - `*.agent.example.com → VPS_IP`
 

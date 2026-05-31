@@ -67,7 +67,7 @@ func (r *RedisClient) TTL(ctx context.Context, key string) (time.Duration, error
 	return r.client.TTL(ctx, key).Result()
 }
 
-// ScanKeys returns all keys matching a pattern. Use sparingly — only for admin listing.
+// ScanKeys returns all keys matching a pattern. Use sparingly - only for admin listing.
 func (r *RedisClient) ScanKeys(ctx context.Context, pattern string) ([]string, error) {
 	var allKeys []string
 	var cursor uint64

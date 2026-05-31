@@ -44,10 +44,10 @@ certbot renew --force-renewal && systemctl reload openresty
 ```
 
 ### Rate limiting too aggressive
-- Proxy (120 req/min): edit `PROXY_RATE_LIMIT` in `/opt/sirius-agent/lua/tunnel_lookup.lua` → `systemctl reload openresty`
-- API (30 req/min): edit `RATE_LIMIT_RPM` in `/etc/sirius-agent/env` → `systemctl restart sirius-api`
+- Proxy (default 600 req/min): set `PROXY_RATE_LIMIT_RPM` in `/etc/sirius-agent/env` → `systemctl restart openresty`
+- API (default 30 req/min): set `RATE_LIMIT_RPM` in `/etc/sirius-agent/env` → `systemctl restart sirius-api`
 
-> `rate_limit.lua` is not loaded by nginx — the active file is `tunnel_lookup.lua`.
+> `rate_limit.lua` is not loaded by nginx - the active file is `tunnel_lookup.lua`.
 
 ### Template placeholders in nginx config
 ```bash

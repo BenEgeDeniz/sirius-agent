@@ -6,7 +6,7 @@
 local limit_store = ngx.shared.rate_limit_store
 
 -- Configuration
-local PROXY_RATE_LIMIT = 120  -- requests per minute per IP for proxy
+local PROXY_RATE_LIMIT = PROXY_RATE_LIMIT_RPM or 600  -- from env, default 600 req/min
 local WINDOW_SECONDS = 60     -- sliding window size
 
 -- Get client IP (trust X-Forwarded-For since we're the edge)
@@ -27,10 +27,10 @@ end
 count = count + 1
 
 if count == 1 then
-    -- First request — set with TTL
+    -- First request - set with TTL
     limit_store:set(key, count, WINDOW_SECONDS)
 else
-    -- Subsequent requests — update without changing TTL
+    -- Subsequent requests - update without changing TTL
     limit_store:incr(key, 1)
 end
 
@@ -49,4 +49,4 @@ if count > PROXY_RATE_LIMIT then
     return ngx.exit(429)
 end
 
--- Request is within limits — proceed
+-- Request is within limits - proceed

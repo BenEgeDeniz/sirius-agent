@@ -18,24 +18,24 @@ Admin → OpenResty (:443) → /api/* → Go API (:8181) → Redis
 
 - Wildcard server block matches `*.domain.xyz`, extracts subdomain via regex
 - `tunnel_lookup.lua` runs in the `access` phase:
-  - Per-IP rate limiting (120 req/min, `lua_shared_dict`)
+  - Per-IP rate limiting (`PROXY_RATE_LIMIT_RPM`, default 600 req/min, `lua_shared_dict`)
   - Redis lookup on `tunnel:{subdomain}`
   - IP access control against `allowed_ips`
-- `rate_limit.lua` is a standalone reference — not loaded by nginx
+- `rate_limit.lua` is a standalone reference - not loaded by nginx
 
 ### Go API
 
 - Listens on `127.0.0.1:8181`
 - Bearer key auth (constant-time comparison)
-- Tunnel durations: 1–1440 min, or `-1` for unlimited
-- Per-IP rate limiting via Redis (30 req/min)
+- Tunnel durations: configurable limits (default 1–1440 min), or `-1` for unlimited
+- Per-IP rate limiting via Redis (`RATE_LIMIT_RPM`, default 30 req/min)
 - Structured JSON logs → journald
 - Static binary, no runtime deps
 
 ### Redis
 
 - Keys: `tunnel:{subdomain}` (TTL = duration), `ratelimit:api:{ip}` (TTL = 60s)
-- Unlimited tunnels have no TTL — deleted manually
+- Unlimited tunnels have no TTL - deleted manually
 - No persistence; bound to `127.0.0.1`; FLUSHALL/FLUSHDB/DEBUG disabled
 
 ### Upstream

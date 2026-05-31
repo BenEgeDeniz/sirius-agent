@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-const (
-	// MaxDurationMinutes is the maximum allowed tunnel duration (24 hours).
-	// -1 means unlimited (no expiration).
-	MaxDurationMinutes = 1440
-)
 
 // TunnelInfo represents an active tunnel stored in Redis.
 type TunnelInfo struct {
@@ -72,13 +67,17 @@ func NormalizeAllowedIPs(ips []string) []string {
 
 // CreateTunnel generates a new ephemeral tunnel.
 func (s *TunnelService) CreateTunnel(ctx context.Context, durationMinutes int, allowedIPs []string, clientIP string) (*TunnelInfo, error) {
-	// Validate duration: -1 = unlimited, otherwise 1..MaxDurationMinutes
-	if durationMinutes != -1 {
-		if durationMinutes < 1 {
-			return nil, fmt.Errorf("invalid duration: must be -1 (unlimited) or between 1 and %d minutes", MaxDurationMinutes)
+	// Validate duration: -1 = unlimited
+	if durationMinutes == -1 {
+		if s.config.MaxTunnelDuration != -1 {
+			return nil, fmt.Errorf("invalid duration: unlimited (-1) is not permitted, maximum is %d minutes", s.config.MaxTunnelDuration)
 		}
-		if durationMinutes > MaxDurationMinutes {
-			return nil, fmt.Errorf("invalid duration: maximum is %d minutes (24 hours)", MaxDurationMinutes)
+	} else {
+		if durationMinutes < s.config.MinTunnelDuration {
+			return nil, fmt.Errorf("invalid duration: minimum is %d minutes", s.config.MinTunnelDuration)
+		}
+		if s.config.MaxTunnelDuration != -1 && durationMinutes > s.config.MaxTunnelDuration {
+			return nil, fmt.Errorf("invalid duration: maximum is %d minutes", s.config.MaxTunnelDuration)
 		}
 	}
 
