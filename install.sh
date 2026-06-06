@@ -16,7 +16,7 @@
 #   - Ubuntu 20.04+ or Debian 11+
 #   - Root privileges
 #   - Internet access
-#   - Tailscale connected to the same network as the upstream
+#   - Network access to the upstream target
 # ============================================================
 set -euo pipefail
 
@@ -188,7 +188,7 @@ if [[ "$NON_INTERACTIVE" == false ]]; then
     if [[ -z "$UPSTREAM_HOST" ]]; then
         echo ""
         echo -e "${BOLD}2. Internal Upstream Target${NC}"
-        echo "   This is the Tailscale MagicDNS hostname of your private server."
+        echo "   This is the hostname or IP of your private server."
         echo "   The proxy will forward all tunnel traffic to this target."
         echo ""
         while true; do
@@ -330,23 +330,6 @@ case "$DNS_PROVIDER" in
 esac
 
 log_ok "Certbot installed"
-
-# ---- Install Tailscale ----
-log_step "Checking Tailscale"
-
-if ! command -v tailscale &>/dev/null; then
-    log_info "Installing Tailscale..."
-    curl -fsSL https://tailscale.com/install.sh | sh
-    log_ok "Tailscale installed - run 'sudo tailscale up' to connect"
-else
-    TS_STATUS=$(tailscale status --json 2>/dev/null | jq -r '.BackendState // "unknown"' 2>/dev/null || echo "unknown")
-    if [[ "$TS_STATUS" == "Running" ]]; then
-        log_ok "Tailscale is connected"
-    else
-        log_warn "Tailscale is installed but not connected (state: $TS_STATUS)"
-        log_warn "Run 'sudo tailscale up' to connect to your network"
-    fi
-fi
 
 # ---- Create System User ----
 log_step "Creating system user"
