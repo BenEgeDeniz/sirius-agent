@@ -328,7 +328,7 @@ type TCPTunnelInfo struct {
 // isPortAllowed checks if the requested upstream port is in the allowed list.
 func (s *TunnelService) isPortAllowed(port int) bool {
 	for _, p := range s.config.TCPAllowedPorts {
-		if p == port {
+		if p == 0 || p == port {
 			return true
 		}
 	}

@@ -84,6 +84,10 @@ func LoadConfig() (*Config, error) {
 			if p == "" {
 				continue
 			}
+			if p == "*" || p == "any" || p == "all" {
+				cfg.TCPAllowedPorts = append(cfg.TCPAllowedPorts, 0)
+				continue
+			}
 			portInt, err := strconv.Atoi(p)
 			if err != nil || portInt < 1 || portInt > 65535 {
 				return nil, fmt.Errorf("invalid TCP_ALLOWED_PORTS value: %s", p)

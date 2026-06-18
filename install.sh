@@ -176,7 +176,7 @@ if [[ "$UPGRADE_MODE" == false ]]; then
     read -rp "   Enter TCP port range end [$TCP_PORT_MAX]: " input_max
     TCP_PORT_MAX="${input_max:-$TCP_PORT_MAX}"
     
-    read -rp "   Enter allowed upstream ports (comma-separated) [$TCP_ALLOWED_PORTS]: " input_ports
+    read -rp "   Enter allowed upstream ports (comma-separated, use * for any) [$TCP_ALLOWED_PORTS]: " input_ports
     TCP_ALLOWED_PORTS="${input_ports:-$TCP_ALLOWED_PORTS}"
 
     # DNS Provider

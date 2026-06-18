@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -133,7 +134,7 @@ func (m *TCPProxyManager) handleConnection(clientConn net.Conn, port int) {
 	}
 
 	// 3. Dial upstream
-	upstreamAddr := fmt.Sprintf("%s:%d", m.cfg.TCPUpstreamHost, tunnel.UpstreamPort)
+	upstreamAddr := net.JoinHostPort(m.cfg.TCPUpstreamHost, strconv.Itoa(tunnel.UpstreamPort))
 	upstreamConn, err := net.DialTimeout("tcp", upstreamAddr, 5*time.Second)
 	if err != nil {
 		m.logger.Error("Failed to connect to upstream", "port", port, "upstream", upstreamAddr, "error", err)
