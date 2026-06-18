@@ -32,20 +32,7 @@ ssh root@YOUR_VPS "systemctl reload openresty"
 cd /root/sirius-agent-src && bash install.sh
 ```
 
-Or substitute manually:
 
-```bash
-DOMAIN="agent.example.com"
-UPSTREAM_URL="https://upstream-server:8443"
-DOMAIN_ESCAPED=$(echo "$DOMAIN" | sed 's/\./\\\\./g')
-
-sed -e "s|__BASE_DOMAIN__|${DOMAIN}|g" \
-    -e "s|__BASE_DOMAIN_ESCAPED__|${DOMAIN_ESCAPED}|g" \
-    -e "s|__UPSTREAM_URL__|${UPSTREAM_URL}|g" \
-    proxy/conf.d/proxy.conf > /etc/sirius-agent/nginx/conf.d/proxy.conf
-
-openresty -t -c /etc/sirius-agent/nginx/nginx.conf && systemctl reload openresty
-```
 
 ## Changing Upstream
 

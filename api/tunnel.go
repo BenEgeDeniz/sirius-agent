@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"time"
 )
@@ -22,17 +24,19 @@ type TunnelInfo struct {
 
 // TunnelService handles tunnel lifecycle operations.
 type TunnelService struct {
-	redis  *RedisClient
-	config *Config
-	logger *Logger
+	redis    *RedisClient
+	config   *Config
+	logger   *Logger
+	tcpProxy *TCPProxyManager
 }
 
 // NewTunnelService creates a new tunnel service.
-func NewTunnelService(rdb *RedisClient, cfg *Config, logger *Logger) *TunnelService {
+func NewTunnelService(rdb *RedisClient, cfg *Config, logger *Logger, tcpProxy *TCPProxyManager) *TunnelService {
 	return &TunnelService{
-		redis:  rdb,
-		config: cfg,
-		logger: logger,
+		redis:    rdb,
+		config:   cfg,
+		logger:   logger,
+		tcpProxy: tcpProxy,
 	}
 }
 
@@ -301,6 +305,267 @@ func (s *TunnelService) ExtendTunnel(ctx context.Context, subdomain string, addi
 
 	s.logger.Info("tunnel extended",
 		"subdomain", subdomain,
+		"additional_minutes", additionalMinutes,
+		"new_duration", newDuration,
+		"new_expires_at", tunnel.ExpiresAt,
+	)
+
+	return &tunnel, nil
+}
+
+// TCPTunnelInfo represents an active TCP tunnel stored in Redis.
+type TCPTunnelInfo struct {
+	Port         int      `json:"port"`
+	Host         string   `json:"host"`
+	UpstreamPort int      `json:"upstream_port"`
+	CreatedAt    string   `json:"created_at"`
+	ExpiresAt    string   `json:"expires_at"` // empty string if unlimited
+	Duration     int      `json:"duration"`   // minutes, -1 = unlimited
+	CreatedByIP  string   `json:"created_by_ip"`
+	AllowedIPs   []string `json:"allowed_ips"`
+}
+
+// isPortAllowed checks if the requested upstream port is in the allowed list.
+func (s *TunnelService) isPortAllowed(port int) bool {
+	for _, p := range s.config.TCPAllowedPorts {
+		if p == port {
+			return true
+		}
+	}
+	return false
+}
+
+// getRandomTCPPort selects a random port in the configured range.
+func (s *TunnelService) getRandomTCPPort() (int, error) {
+	rangeSize := int64(s.config.TCPPortMax - s.config.TCPPortMin + 1)
+	n, err := rand.Int(rand.Reader, big.NewInt(rangeSize))
+	if err != nil {
+		return 0, err
+	}
+	return int(n.Int64()) + s.config.TCPPortMin, nil
+}
+
+// CreateTCPTunnel generates a new dynamic TCP tunnel.
+func (s *TunnelService) CreateTCPTunnel(ctx context.Context, durationMinutes int, upstreamPort int, allowedIPs []string, clientIP string) (*TCPTunnelInfo, error) {
+	if !s.isPortAllowed(upstreamPort) {
+		return nil, fmt.Errorf("upstream port %d is not allowed, permitted: %v", upstreamPort, s.config.TCPAllowedPorts)
+	}
+
+	if durationMinutes == -1 {
+		if s.config.MaxTunnelDuration != -1 {
+			return nil, fmt.Errorf("invalid duration: unlimited (-1) is not permitted, maximum is %d minutes", s.config.MaxTunnelDuration)
+		}
+	} else {
+		if durationMinutes < s.config.MinTunnelDuration {
+			return nil, fmt.Errorf("invalid duration: minimum is %d minutes", s.config.MinTunnelDuration)
+		}
+		if s.config.MaxTunnelDuration != -1 && durationMinutes > s.config.MaxTunnelDuration {
+			return nil, fmt.Errorf("invalid duration: maximum is %d minutes", s.config.MaxTunnelDuration)
+		}
+	}
+
+	if err := ValidateAllowedIPs(allowedIPs); err != nil {
+		return nil, err
+	}
+	if len(allowedIPs) == 0 {
+		allowedIPs = []string{"any"}
+	} else {
+		allowedIPs = NormalizeAllowedIPs(allowedIPs)
+	}
+
+	// Check combined tunnel count limit
+	countHTTP, err := s.redis.CountKeys(ctx, "tunnel:*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to count HTTP tunnels: %w", err)
+	}
+	countTCP, err := s.redis.CountKeys(ctx, "tcp_tunnel:*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to count TCP tunnels: %w", err)
+	}
+	if (countHTTP + countTCP) >= s.config.MaxTunnels {
+		return nil, fmt.Errorf("maximum tunnel limit reached (%d)", s.config.MaxTunnels)
+	}
+
+	var port int
+	var found bool
+	for i := 0; i < 10; i++ {
+		p, err := s.getRandomTCPPort()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate random port: %w", err)
+		}
+		exists, err := s.redis.Exists(ctx, fmt.Sprintf("tcp_tunnel:%d", p))
+		if err != nil {
+			return nil, fmt.Errorf("redis check failed: %w", err)
+		}
+		if !exists {
+			port = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("no available ports in configured range")
+	}
+
+	now := time.Now().UTC()
+	host := fmt.Sprintf("connect.%s", s.config.BaseDomain)
+	tunnel := &TCPTunnelInfo{
+		Port:         port,
+		Host:         host,
+		UpstreamPort: upstreamPort,
+		CreatedAt:    now.Format(time.RFC3339),
+		Duration:     durationMinutes,
+		CreatedByIP:  clientIP,
+		AllowedIPs:   allowedIPs,
+	}
+
+	var ttl time.Duration
+	if durationMinutes == -1 {
+		ttl = 0
+		tunnel.ExpiresAt = ""
+	} else {
+		ttl = time.Duration(durationMinutes) * time.Minute
+		tunnel.ExpiresAt = now.Add(ttl).Format(time.RFC3339)
+	}
+
+	data, err := json.Marshal(tunnel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tunnel: %w", err)
+	}
+
+	if err := s.redis.Set(ctx, fmt.Sprintf("tcp_tunnel:%d", port), string(data), ttl); err != nil {
+		return nil, fmt.Errorf("failed to store tunnel: %w", err)
+	}
+
+	s.logger.Info("tcp tunnel created",
+		"port", port,
+		"upstream_port", upstreamPort,
+		"duration", durationMinutes,
+		"allowed_ips", allowedIPs,
+		"client_ip", clientIP,
+	)
+
+	if err := s.tcpProxy.StartProxy(port); err != nil {
+		s.redis.Delete(ctx, fmt.Sprintf("tcp_tunnel:%d", port))
+		return nil, fmt.Errorf("failed to start tcp proxy: %w", err)
+	}
+
+	return tunnel, nil
+}
+
+// ListTCPTunnels returns all active TCP tunnels.
+func (s *TunnelService) ListTCPTunnels(ctx context.Context) ([]TCPTunnelInfo, error) {
+	keys, err := s.redis.ScanKeys(ctx, "tcp_tunnel:*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan TCP tunnels: %w", err)
+	}
+
+	var tunnels []TCPTunnelInfo
+	for _, key := range keys {
+		data, err := s.redis.Get(ctx, key)
+		if err != nil || data == "" {
+			continue
+		}
+
+		var tunnel TCPTunnelInfo
+		if err := json.Unmarshal([]byte(data), &tunnel); err != nil {
+			continue
+		}
+		tunnels = append(tunnels, tunnel)
+	}
+
+	if tunnels == nil {
+		tunnels = []TCPTunnelInfo{}
+	}
+
+	return tunnels, nil
+}
+
+// DeleteTCPTunnel removes a TCP tunnel.
+func (s *TunnelService) DeleteTCPTunnel(ctx context.Context, port int) error {
+	key := fmt.Sprintf("tcp_tunnel:%d", port)
+	exists, err := s.redis.Exists(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to check tunnel: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("tunnel not found: %d", port)
+	}
+
+	if err := s.redis.Delete(ctx, key); err != nil {
+		return fmt.Errorf("failed to delete tunnel: %w", err)
+	}
+
+	s.tcpProxy.StopProxy(port)
+
+	s.logger.Info("tcp tunnel deleted", "port", port)
+	return nil
+}
+
+// ExtendTCPTunnel extends the expiration of an active TCP tunnel.
+func (s *TunnelService) ExtendTCPTunnel(ctx context.Context, port int, additionalMinutes int) (*TCPTunnelInfo, error) {
+	if additionalMinutes <= 0 {
+		return nil, fmt.Errorf("invalid extension: additional minutes must be a positive integer")
+	}
+
+	key := fmt.Sprintf("tcp_tunnel:%d", port)
+	data, err := s.redis.Get(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tunnel: %w", err)
+	}
+	if data == "" {
+		return nil, fmt.Errorf("tunnel not found: %d", port)
+	}
+
+	var tunnel TCPTunnelInfo
+	if err := json.Unmarshal([]byte(data), &tunnel); err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel data: %w", err)
+	}
+
+	if tunnel.Duration == -1 {
+		return nil, fmt.Errorf("tunnel is already unlimited, no extension needed")
+	}
+
+	now := time.Now().UTC()
+	createdAt, err := time.Parse(time.RFC3339, tunnel.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel creation time: %w", err)
+	}
+
+	currentExpiresAt, err := time.Parse(time.RFC3339, tunnel.ExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel expiration time: %w", err)
+	}
+
+	newExpiresAt := currentExpiresAt.Add(time.Duration(additionalMinutes) * time.Minute)
+
+	if s.config.MaxTunnelDuration != -1 {
+		maxExpiresAt := createdAt.Add(time.Duration(s.config.MaxTunnelDuration) * time.Minute)
+		if newExpiresAt.After(maxExpiresAt) {
+			return nil, fmt.Errorf("invalid extension: total tunnel duration would exceed maximum of %d minutes", s.config.MaxTunnelDuration)
+		}
+	}
+
+	if currentExpiresAt.Before(now) {
+		return nil, fmt.Errorf("tunnel has already expired")
+	}
+
+	newDuration := int(newExpiresAt.Sub(createdAt).Minutes())
+	tunnel.ExpiresAt = newExpiresAt.Format(time.RFC3339)
+	tunnel.Duration = newDuration
+
+	updatedData, err := json.Marshal(&tunnel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tunnel: %w", err)
+	}
+
+	newTTL := newExpiresAt.Sub(now)
+	if err := s.redis.Set(ctx, key, string(updatedData), newTTL); err != nil {
+		return nil, fmt.Errorf("failed to update tunnel: %w", err)
+	}
+
+	s.logger.Info("tcp tunnel extended",
+		"port", port,
 		"additional_minutes", additionalMinutes,
 		"new_duration", newDuration,
 		"new_expires_at", tunnel.ExpiresAt,

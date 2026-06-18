@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -34,6 +35,12 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	// TCP tunnel settings
+	TCPPortMin        int   // default 50000
+	TCPPortMax        int   // default 60000
+	TCPAllowedPorts   []int // allowed upstream ports
+	TCPUpstreamHost   string
 }
 
 // LoadConfig reads configuration from environment variables with sensible defaults.
@@ -49,7 +56,48 @@ func LoadConfig() (*Config, error) {
 		MinTunnelDuration: envOrDefaultInt("MIN_TUNNEL_DURATION", 1),
 		MaxTunnelDuration: envOrDefaultInt("MAX_TUNNEL_DURATION", 1440),
 		RateLimitRPM:      envOrDefaultInt("RATE_LIMIT_RPM", 30),
-		LogLevel:      envOrDefault("LOG_LEVEL", "info"),
+		LogLevel:          envOrDefault("LOG_LEVEL", "info"),
+		TCPPortMin:        envOrDefaultInt("TCP_PORT_MIN", 50000),
+		TCPPortMax:        envOrDefaultInt("TCP_PORT_MAX", 60000),
+		TCPUpstreamHost:   os.Getenv("TCP_UPSTREAM_HOST"),
+	}
+
+	// Fallback for TCPUpstreamHost from UPSTREAM_URL
+	if cfg.TCPUpstreamHost == "" && cfg.UpstreamURL != "" {
+		hostPort := strings.TrimPrefix(cfg.UpstreamURL, "https://")
+		hostPort = strings.TrimPrefix(hostPort, "http://")
+		if host, _, err := net.SplitHostPort(hostPort); err == nil {
+			cfg.TCPUpstreamHost = host
+		} else {
+			// If SplitHostPort fails (e.g. no port), just use the whole string
+			cfg.TCPUpstreamHost = hostPort
+		}
+	}
+
+	// Parse TCP allowed ports
+	portsRaw := os.Getenv("TCP_ALLOWED_PORTS")
+	if portsRaw == "" {
+		cfg.TCPAllowedPorts = []int{22}
+	} else {
+		for _, p := range strings.Split(portsRaw, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			portInt, err := strconv.Atoi(p)
+			if err != nil || portInt < 1 || portInt > 65535 {
+				return nil, fmt.Errorf("invalid TCP_ALLOWED_PORTS value: %s", p)
+			}
+			cfg.TCPAllowedPorts = append(cfg.TCPAllowedPorts, portInt)
+		}
+	}
+	if len(cfg.TCPAllowedPorts) == 0 {
+		cfg.TCPAllowedPorts = []int{22}
+	}
+
+	// Validate TCP port range
+	if cfg.TCPPortMin < 1024 || cfg.TCPPortMax <= cfg.TCPPortMin || cfg.TCPPortMax > 65535 {
+		return nil, fmt.Errorf("invalid TCP port range: %d-%d", cfg.TCPPortMin, cfg.TCPPortMax)
 	}
 
 	// Parse API keys (comma-separated)

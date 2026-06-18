@@ -36,8 +36,12 @@ func main() {
 	defer rdb.Close()
 	logger.Info("connected to Redis", "addr", cfg.RedisAddr)
 
+	// Initialize TCP Proxy Manager
+	tcpProxy := NewTCPProxyManager(rdb, cfg, logger)
+	go tcpProxy.StartAllActiveTunnels()
+
 	// Initialize services
-	tunnelSvc := NewTunnelService(rdb, cfg, logger)
+	tunnelSvc := NewTunnelService(rdb, cfg, logger, tcpProxy)
 
 	// Setup HTTP routes
 	mux := http.NewServeMux()

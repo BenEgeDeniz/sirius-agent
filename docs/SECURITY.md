@@ -20,7 +20,8 @@
 - Stored in `/etc/sirius-agent/env` (chmod 600)
 
 ### Anti-SSRF
-Upstream is hardcoded in nginx at install time via `proxy_pass`. Users control only `duration` and `allowed_ips` - they cannot influence the upstream target.
+HTTP Upstream is hardcoded in nginx at install time via `proxy_pass`. Users control only `duration` and `allowed_ips`.
+TCP Upstreams are restricted by the `TCP_ALLOWED_PORTS` environment variable. Users cannot forward traffic to arbitrary ports.
 
 ### Rate Limiting
 
@@ -35,12 +36,12 @@ Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`
 `{adj}-{noun}-{4hex}` - 212M+ combinations, generated with `crypto/rand`, collision-checked against Redis.
 
 ### IP Access Control
-Per-tunnel `allowed_ips` list enforced in `tunnel_lookup.lua` before proxying. Defaults to `["any"]`.
+Per-tunnel `allowed_ips` list enforced in `tunnel_lookup.lua` (for HTTP proxying via OpenResty) and natively in the Go API's TCP listener (for TCP tunnels) before any upstream connection is made. Defaults to `["any"]`.
 
 ### Network
 - Go API: `127.0.0.1:8181` - localhost only
 - Redis: `127.0.0.1:6379` - localhost only
-- UFW: only 22, 80, 443 open; 6379 explicitly denied
+- UFW: 22, 80, 443, and the ephemeral TCP port range (`TCP_PORT_MIN` to `TCP_PORT_MAX`) open; 6379 explicitly denied
 
 ### TLS
 - Wildcard cert via Let's Encrypt, auto-renewed

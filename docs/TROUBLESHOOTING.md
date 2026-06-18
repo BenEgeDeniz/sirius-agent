@@ -3,7 +3,7 @@
 ## Quick Check
 
 ```bash
-bash /opt/sirius-agent/scripts/health-check.sh
+curl https://YOUR_DOMAIN/api/health
 systemctl status sirius-api openresty redis-server
 journalctl -u sirius-api --since "10 min ago"
 ```
@@ -31,9 +31,7 @@ ss -tlnp | grep -E ':80|:443'          # port conflicts
 curl -vk https://YOUR_UPSTREAM_HOST:PORT    # direct connectivity test
 tail -50 /var/log/sirius-agent/nginx-error.log
 
-# Tailscale only
-tailscale status
-dig upstream-server @100.100.100.100
+
 ```
 
 ### TLS issues

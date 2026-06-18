@@ -10,8 +10,8 @@ Internet → OpenResty (*.domain.xyz) → Redis lookup → Upstream
 
 | Component | Role |
 |-----------|------|
-| **OpenResty** | TLS termination, subdomain routing, rate limiting, IP access control |
-| **Go API** | Tunnel CRUD, authentication, business logic |
+| **OpenResty** | TLS termination, subdomain routing, rate limiting, IP access control (HTTP/HTTPS tunnels) |
+| **Go API** | Tunnel CRUD, authentication, business logic, **Native TCP Reverse Proxy** (TCP tunnels) |
 | **Redis** | Tunnel registry with TTL-based expiration |
 
 ## Quick Start
@@ -25,11 +25,7 @@ scp -r . root@your-vps:/opt/sirius-agent-src/
 ssh root@your-vps "cd /opt/sirius-agent-src && bash install.sh"
 ```
 
-Or non-interactively:
 
-```bash
-bash install.sh --domain agent.example.com --upstream upstream-server:8443
-```
 
 ## Usage
 
@@ -57,6 +53,12 @@ curl -X PATCH https://agent.example.com/api/tunnels/brave-fox-a3f1 \
   -H 'Authorization: Bearer YOUR_API_KEY' \
   -H 'Content-Type: application/json' \
   -d '{"additional_minutes": 30}'
+
+# Create a TCP tunnel (e.g., for SSH on port 22)
+curl -X POST https://agent.example.com/api/tunnels/tcp \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"duration": 10, "upstream_port": 22}'
 ```
 
 Response:
@@ -76,10 +78,14 @@ Response:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/tunnels` | Bearer key | Create tunnel |
-| `GET` | `/api/tunnels` | Bearer key | List active tunnels |
-| `PATCH` | `/api/tunnels/{subdomain}` | Bearer key | Extend tunnel duration |
-| `DELETE` | `/api/tunnels/{subdomain}` | Bearer key | Revoke tunnel |
+| `POST` | `/api/tunnels` | Bearer key | Create HTTP tunnel |
+| `GET` | `/api/tunnels` | Bearer key | List active HTTP tunnels |
+| `PATCH` | `/api/tunnels/{sub}` | Bearer key | Extend HTTP tunnel duration |
+| `DELETE` | `/api/tunnels/{sub}` | Bearer key | Revoke HTTP tunnel |
+| `POST` | `/api/tunnels/tcp` | Bearer key | Create TCP tunnel |
+| `GET` | `/api/tunnels/tcp` | Bearer key | List active TCP tunnels |
+| `PATCH` | `/api/tunnels/tcp/{port}`| Bearer key | Extend TCP tunnel duration |
+| `DELETE` | `/api/tunnels/tcp/{port}`| Bearer key | Revoke TCP tunnel |
 | `GET` | `/api/health` | None | Health check |
 
 ## Project Structure
@@ -90,7 +96,7 @@ sirius_agent/
 ├── proxy/                  # OpenResty config and Lua scripts
 ├── redis/                  # Redis config template
 ├── systemd/                # Service files
-├── scripts/                # Build, deploy, health-check
+├── scripts/                # Build and utility scripts
 ├── docs/                   # Documentation
 ├── dist/                   # Compiled binary
 ├── install.sh

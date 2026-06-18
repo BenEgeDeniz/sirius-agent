@@ -37,34 +37,10 @@ bash install.sh
 
 Prompts for: domain, upstream host, upstream port, DNS provider, DNS credentials.
 
-**Non-interactive:**
-
-```bash
-bash install.sh \
-  --domain agent.example.com \
-  --upstream upstream-server:8443 \
-  --dns-provider cloudflare \
-  --non-interactive
-```
-
-Place DNS credentials at `/etc/sirius-agent/dns-credentials.ini` beforehand.
-
-**Flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--domain` | Wildcard base domain |
-| `--upstream HOST:PORT` | Upstream host and port |
-| `--dns-provider` | `cloudflare`, `digitalocean`, `route53`, `manual` |
-| `--non-interactive` | Skip prompts |
-| `--skip-tls` | Skip cert setup |
-| `--binary PATH` | Pre-built binary path |
-
 ## 4. Verify
 
 ```bash
-bash /opt/sirius-agent/scripts/health-check.sh
-curl -s http://127.0.0.1:8181/api/health | jq .
+curl https://YOUR_DOMAIN/api/health | jq .
 journalctl -u sirius-api -f
 ```
 
@@ -93,9 +69,7 @@ curl -X PATCH https://your-domain.xyz/api/tunnels/SUBDOMAIN \
 ```bash
 curl -k https://YOUR_UPSTREAM_HOST:YOUR_UPSTREAM_PORT
 
-# Tailscale only
-tailscale status
-dig upstream-server @100.100.100.100
+
 ```
 
 ## 7. Configuration

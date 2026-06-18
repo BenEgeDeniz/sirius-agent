@@ -88,9 +88,48 @@ All tunnel responses use this object:
 | `created_by_ip` | string | IP address of the client that created the tunnel |
 | `allowed_ips` | string[] | List of allowed client IPs, or `["any"]` for unrestricted |
 
+### TCPTunnelInfo
+
+TCP tunnels use a slightly different object structure:
+
+```json
+{
+  "port": 52371,
+  "host": "connect.agent.example.com",
+  "upstream_port": 22,
+  "created_at": "2025-01-15T10:00:00Z",
+  "expires_at": "2025-01-15T10:10:00Z",
+  "duration": 10,
+  "created_by_ip": "203.0.113.50",
+  "allowed_ips": ["203.0.113.50"]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `port` | int | Allocated random high port |
+| `host` | string | Hostname to connect to (`connect.<BASE_DOMAIN>`) |
+| `upstream_port` | int | The port on the upstream server to forward traffic to |
+| `created_at` | string | RFC 3339 UTC creation timestamp |
+| `expires_at` | string | RFC 3339 UTC expiration timestamp, empty string if unlimited |
+| `duration` | int | Total duration in minutes from creation, `-1` if unlimited |
+| `created_by_ip` | string | IP address of the client that created the tunnel |
+| `allowed_ips` | string[] | List of allowed client IPs, defaults to `["any"]` for unrestricted |
+
 ---
 
 ## Endpoints
+
+### TCP Endpoints
+The API also supports identical endpoints for ephemeral TCP tunnels under the `/api/tunnels/tcp` prefix:
+- `POST /api/tunnels/tcp` (uses `CreateTCPTunnelRequest` with `upstream_port`)
+- `GET /api/tunnels/tcp`
+- `PATCH /api/tunnels/tcp/{port}`
+- `DELETE /api/tunnels/tcp/{port}`
+
+They follow the exact same request/response patterns as the HTTP tunnel endpoints below, but operate on `TCPTunnelInfo` objects and use `port` as the identifier instead of `subdomain`.
+
+---
 
 ### `GET /api/health`
 
@@ -102,22 +141,35 @@ No body or parameters.
 
 #### Responses
 
-**`200 OK`** — System healthy
+**`200 OK`** — System fully healthy
 
 ```json
 {
   "status": "healthy",
-  "redis": "connected"
+  "redis": "connected",
+  "openresty": "active",
+  "ufw": "active",
+  "tls_cert": {
+    "valid": true,
+    "days_remaining": 89
+  }
 }
 ```
 
-**`503 Service Unavailable`** — Redis unreachable
+The `status` field can be `"healthy"`, `"warning"` (e.g., if TLS certificate expires in < 7 days), or `"degraded"` (if a non-critical component like UFW or OpenResty is inactive).
+
+**`503 Service Unavailable`** — Critical failure (Redis unreachable)
 
 ```json
 {
-  "status": "unhealthy",
+  "status": "degraded",
   "redis": "disconnected",
-  "error": "<redis error message>"
+  "openresty": "active",
+  "ufw": "active",
+  "tls_cert": {
+    "valid": true,
+    "days_remaining": 89
+  }
 }
 ```
 
@@ -428,3 +480,7 @@ These environment variables control the API behavior:
 | `API_KEYS` | — | Comma-separated Bearer keys (required) |
 | `BASE_DOMAIN` | — | Wildcard base domain (required) |
 | `UPSTREAM_URL` | — | Upstream HTTPS URL (required) |
+| `TCP_PORT_MIN` | `50000` | Start of ephemeral TCP port range |
+| `TCP_PORT_MAX` | `60000` | End of ephemeral TCP port range |
+| `TCP_ALLOWED_PORTS`| `22` | Comma-separated list of allowed upstream ports |
+| `TCP_UPSTREAM_HOST`| — | Upstream host for TCP forwarding |

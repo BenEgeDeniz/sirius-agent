@@ -6,14 +6,13 @@
 #
 # Usage:
 #   Interactive:      sudo bash uninstall.sh
-#   Non-interactive:  sudo bash uninstall.sh --force
-#   Full removal:     sudo bash uninstall.sh --force --purge
 # ============================================================
 set -euo pipefail
 
 # ---- Constants ----
 INSTALL_DIR="/opt/sirius-agent"
 CONFIG_DIR="/etc/sirius-agent"
+ENV_FILE="$CONFIG_DIR/env"
 LOG_DIR="/var/log/sirius-agent"
 BINARY_PATH="/usr/local/bin/sirius-api"
 SERVICE_USER="sirius-agent"
@@ -29,40 +28,16 @@ log_info()  { echo -e "  [INFO] $*"; }
 log_ok()    { echo -e "  ${GREEN}[OK]${NC} $*"; }
 log_warn()  { echo -e "  ${YELLOW}[WARN]${NC} $*"; }
 
-# ---- Parse Arguments ----
-FORCE=false
-PURGE=false
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --force|-f)
-            FORCE=true
-            shift
-            ;;
-        --purge)
-            PURGE=true
-            shift
-            ;;
-        -h|--help)
-            echo "Usage: sudo bash uninstall.sh [OPTIONS]"
-            echo ""
-            echo "Options:"
-            echo "  --force, -f    Skip confirmation prompts"
-            echo "  --purge        Also remove Redis, OpenResty, and logs"
-            echo "  -h, --help     Show this help"
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            exit 1
-            ;;
-    esac
-done
 
 # ---- Pre-flight ----
 if [[ $EUID -ne 0 ]]; then
     echo "This script must be run as root (use sudo)"
     exit 1
+fi
+
+if [[ -f "$ENV_FILE" ]]; then
+    source "$ENV_FILE"
 fi
 
 echo ""
@@ -71,29 +46,22 @@ echo -e "${BOLD}║       BenEgeDeniz Sirius Agent - Uninstaller             ║
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
-if [[ "$FORCE" == false ]]; then
-    echo -e "${RED}WARNING: This will remove the sirius agent system.${NC}"
-    echo ""
-    echo "The following will be removed:"
-    echo "  • Sirius API service and binary"
-    echo "  • OpenResty configuration"
-    echo "  • Redis configuration overrides"
-    echo "  • Environment and secrets"
-    echo "  • Lua scripts"
-    if [[ "$PURGE" == true ]]; then
-        echo "  • Redis server (package)"
-        echo "  • OpenResty (package)"
-        echo "  • Log files"
-        echo "  • TLS certificates"
-    fi
-    echo ""
-    read -rp "Are you sure? Type 'yes' to confirm: " confirm
-    if [[ "$confirm" != "yes" ]]; then
-        echo "Cancelled."
-        exit 0
-    fi
+echo -e "${RED}WARNING: This will completely remove the sirius agent system.${NC}"
+echo ""
+echo "The following will be removed:"
+echo "  • Sirius API service and binary"
+echo "  • OpenResty configuration and package"
+echo "  • Redis configuration overrides"
+echo "  • Environment and secrets"
+echo "  • Lua scripts"
+echo "  • Log files"
+echo "  • TLS certificates"
+echo ""
+read -rp "Are you sure you want to completely uninstall? Type 'yes' to confirm: " confirm
+if [[ "$confirm" != "yes" ]]; then
+    echo "Cancelled."
+    exit 0
 fi
-
 # ---- Stop Services ----
 echo ""
 echo -e "${BOLD}==> Stopping services${NC}"
@@ -175,32 +143,46 @@ echo -e "${BOLD}==> Removing firewall rules${NC}"
 if command -v ufw &>/dev/null; then
     ufw delete allow 80/tcp 2>/dev/null || true
     ufw delete allow 443/tcp 2>/dev/null || true
+    if [[ -n "${TCP_PORT_MIN:-}" ]] && [[ -n "${TCP_PORT_MAX:-}" ]]; then
+        ufw delete allow ${TCP_PORT_MIN}:${TCP_PORT_MAX}/tcp 2>/dev/null || true
+    fi
     ufw delete deny 6379/tcp 2>/dev/null || true
     log_ok "Firewall rules removed"
 fi
 
-# ---- Purge (optional) ----
-if [[ "$PURGE" == true ]]; then
-    echo ""
-    echo -e "${BOLD}==> Purging packages and data${NC}"
-
-    # Remove logs
-    rm -rf "$LOG_DIR"
-    log_ok "Removed log directory"
-
-    # Remove TLS certificates
-    certbot delete --cert-name sirius-agent --non-interactive 2>/dev/null || true
-    rm -f /etc/letsencrypt/renewal-hooks/deploy/reload-openresty.sh 2>/dev/null || true
-    log_ok "TLS certificates removed"
-
-    # Remove packages and repos (ask first unless --force)
-    if [[ "$FORCE" == true ]] || { read -rp "Remove Redis and OpenResty packages? [y/N] " pkg_confirm && [[ "$pkg_confirm" =~ ^[Yy]$ ]]; }; then
-        apt-get remove -y --purge openresty 2>/dev/null || true
-        rm -f /etc/apt/sources.list.d/openresty.list 2>/dev/null || true
-        rm -f /usr/share/keyrings/openresty.gpg 2>/dev/null || true
-        # Don't auto-remove Redis as other services might use it
-        log_ok "Packages and apt repos removed"
+# ---- Remove iptables rules ----
+echo ""
+echo -e "${BOLD}==> Removing iptables rules${NC}"
+if [[ -n "${TCP_PORT_MIN:-}" ]] && [[ -n "${TCP_PORT_MAX:-}" ]]; then
+    iptables -t nat -D PREROUTING -p tcp --dport ${TCP_PORT_MIN}:${TCP_PORT_MAX} -j REDIRECT --to-port 59999 2>/dev/null || true
+    if command -v netfilter-persistent &>/dev/null; then
+        netfilter-persistent save 2>/dev/null || true
     fi
+    log_ok "iptables TCP port forwarding rules removed"
+fi
+
+# ---- Purge Packages and Data ----
+echo ""
+echo -e "${BOLD}==> Purging packages and data${NC}"
+
+# Remove logs
+rm -rf "$LOG_DIR"
+log_ok "Removed log directory"
+
+# Remove TLS certificates
+certbot delete --cert-name sirius-agent --non-interactive 2>/dev/null || true
+rm -f /etc/letsencrypt/renewal-hooks/deploy/reload-openresty.sh 2>/dev/null || true
+log_ok "TLS certificates removed"
+
+# Remove packages and repos
+read -rp "   Remove Redis and OpenResty packages? [y/N] " pkg_confirm
+if [[ "$pkg_confirm" =~ ^[Yy]$ ]]; then
+    apt-get remove -y --purge openresty redis-server 2>/dev/null || true
+    rm -f /etc/apt/sources.list.d/openresty.list 2>/dev/null || true
+    rm -f /usr/share/keyrings/openresty.gpg 2>/dev/null || true
+    log_ok "Packages and apt repos removed"
+else
+    log_info "Skipped removing Redis and OpenResty packages"
 fi
 
 # ---- Remove Service User ----
@@ -217,11 +199,4 @@ echo ""
 echo -e "${GREEN}${BOLD}Uninstallation complete.${NC}"
 echo ""
 
-if [[ "$PURGE" == false ]]; then
-    echo "Note: Redis and OpenResty packages were preserved."
-    echo "Run with --purge to fully remove them."
-    echo ""
-    echo "Log files preserved at: $LOG_DIR"
-    echo "Run with --purge to remove logs too."
-fi
 echo ""

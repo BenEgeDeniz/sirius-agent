@@ -79,60 +79,15 @@ generate_password() {
     head -c 32 /dev/urandom | xxd -p -c 64
 }
 
-# ---- Parse CLI Arguments ----
+# ---- Defaults ----
 DOMAIN=""
 UPSTREAM_HOST=""
 UPSTREAM_PORT=""
+TCP_PORT_MIN="50000"
+TCP_PORT_MAX="60000"
+TCP_ALLOWED_PORTS="22"
 DNS_PROVIDER="cloudflare"
-NON_INTERACTIVE=false
-SKIP_TLS=false
 BINARY_SOURCE=""
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --domain)
-            DOMAIN="$2"
-            shift 2
-            ;;
-        --upstream)
-            # Parse host:port
-            IFS=':' read -r UPSTREAM_HOST UPSTREAM_PORT <<< "$2"
-            shift 2
-            ;;
-        --dns-provider)
-            DNS_PROVIDER="$2"
-            shift 2
-            ;;
-        --non-interactive)
-            NON_INTERACTIVE=true
-            shift
-            ;;
-        --skip-tls)
-            SKIP_TLS=true
-            shift
-            ;;
-        --binary)
-            BINARY_SOURCE="$2"
-            shift 2
-            ;;
-        -h|--help)
-            echo "Usage: sudo bash install.sh [OPTIONS]"
-            echo ""
-            echo "Options:"
-            echo "  --domain DOMAIN        Wildcard base domain (e.g., upstream-server.example.xyz)"
-            echo "  --upstream HOST:PORT   Internal upstream (e.g., upstream-server:8443)"
-            echo "  --dns-provider NAME    DNS provider for certbot (default: cloudflare)"
-            echo "  --non-interactive      Skip prompts, require all flags"
-            echo "  --skip-tls             Skip TLS certificate setup"
-            echo "  --binary PATH          Path to pre-built sirius-api binary"
-            echo "  -h, --help             Show this help"
-            exit 0
-            ;;
-        *)
-            die "Unknown option: $1 (use --help for usage)"
-            ;;
-    esac
-done
 
 # ---- Pre-flight Checks ----
 log_step "Pre-flight checks"
@@ -147,22 +102,28 @@ if ! command -v apt-get &>/dev/null; then
     die "This installer requires a Debian/Ubuntu system with apt"
 fi
 
+UPGRADE_MODE=false
 # Check for existing installation
 if [[ -f "$ENV_FILE" ]]; then
     log_warn "Existing installation detected at $CONFIG_DIR"
-    if [[ "$NON_INTERACTIVE" == false ]]; then
-        read -rp "Overwrite existing configuration? [y/N] " confirm
-        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-            log_info "Preserving existing configuration. Upgrading binary only."
-            # TODO: binary-only upgrade path
-        fi
+    read -rp "Overwrite existing configuration? [y/N] " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "Preserving existing configuration. Upgrading binary and templates only."
+        source "$ENV_FILE"
+        DOMAIN="${BASE_DOMAIN:-}"
+        API_KEY="${API_KEYS:-}"
+        UPSTREAM_URL="${UPSTREAM_URL:-}"
+        UPSTREAM_HOST="${TCP_UPSTREAM_HOST:-}"
+        UPSTREAM_PORT=$(echo "$UPSTREAM_URL" | sed -E 's|https?://[^:]+:([0-9]+).*|\1|' || echo "")
+        DOMAIN_ESCAPED=$(echo "$DOMAIN" | sed 's/\./\\\\./g')
+        UPGRADE_MODE=true
     fi
 fi
 
 log_ok "Pre-flight checks passed"
 
-# ---- Interactive Prompts ----
-if [[ "$NON_INTERACTIVE" == false ]]; then
+if [[ "$UPGRADE_MODE" == false ]]; then
+    # ---- Interactive Prompts ----
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║       Sirius Agent - Installation Wizard     ║${NC}"
@@ -170,81 +131,89 @@ if [[ "$NON_INTERACTIVE" == false ]]; then
     echo ""
 
     # Domain
-    if [[ -z "$DOMAIN" ]]; then
-        echo -e "${BOLD}1. Wildcard Base Domain${NC}"
-        echo "   This is the domain under which tunnel subdomains will be created."
-        echo "   DNS should have a wildcard A record (*.domain) pointing to this server."
-        echo ""
-        while true; do
-            read -rp "   Enter base domain (e.g., agent.example.com): " DOMAIN
-            if validate_domain "$DOMAIN"; then
-                break
-            fi
-            log_error "Invalid domain format. Use lowercase letters, numbers, dots, and hyphens."
-        done
-    fi
+    echo -e "${BOLD}1. Wildcard Base Domain${NC}"
+    echo "   This is the domain under which tunnel subdomains will be created."
+    echo "   DNS should have a wildcard A record (*.domain) pointing to this server."
+    echo ""
+    while true; do
+        read -rp "   Enter base domain (e.g., agent.example.com): " DOMAIN
+        if validate_domain "$DOMAIN"; then
+            break
+        fi
+        log_error "Invalid domain format. Use lowercase letters, numbers, dots, and hyphens."
+    done
 
     # Upstream
-    if [[ -z "$UPSTREAM_HOST" ]]; then
-        echo ""
-        echo -e "${BOLD}2. Internal Upstream Target${NC}"
-        echo "   This is the hostname or IP of your private server."
-        echo "   The proxy will forward all tunnel traffic to this target."
-        echo ""
-        while true; do
-            read -rp "   Enter upstream hostname (e.g., upstream-server): " UPSTREAM_HOST
-            if validate_hostname "$UPSTREAM_HOST"; then
-                break
-            fi
-            log_error "Invalid hostname. Use letters, numbers, and hyphens only."
-        done
+    echo ""
+    echo -e "${BOLD}2. Internal Upstream Target${NC}"
+    echo "   This is the hostname or IP of your private server."
+    echo "   The proxy will forward all tunnel traffic to this target."
+    echo ""
+    while true; do
+        read -rp "   Enter upstream hostname (e.g., upstream-server): " UPSTREAM_HOST
+        if validate_hostname "$UPSTREAM_HOST"; then
+            break
+        fi
+        log_error "Invalid hostname. Use letters, numbers, and hyphens only."
+    done
 
-        while true; do
-            read -rp "   Enter upstream port (e.g., 8443): " UPSTREAM_PORT
-            if validate_port "$UPSTREAM_PORT"; then
-                break
-            fi
-            log_error "Invalid port. Must be between 1 and 65535."
-        done
-    fi
+    while true; do
+        read -rp "   Enter upstream port (e.g., 8443): " UPSTREAM_PORT
+        if validate_port "$UPSTREAM_PORT"; then
+            break
+        fi
+        log_error "Invalid port. Must be between 1 and 65535."
+    done
+
+    # TCP Settings
+    echo ""
+    echo -e "${BOLD}4. TCP Tunnel Settings${NC}"
+    echo "   Ephemeral TCP tunnels allow temporary port forwarding (e.g., SSH, MySQL)."
+    echo ""
+    read -rp "   Enter TCP port range start [$TCP_PORT_MIN]: " input_min
+    TCP_PORT_MIN="${input_min:-$TCP_PORT_MIN}"
+    
+    read -rp "   Enter TCP port range end [$TCP_PORT_MAX]: " input_max
+    TCP_PORT_MAX="${input_max:-$TCP_PORT_MAX}"
+    
+    read -rp "   Enter allowed upstream ports (comma-separated) [$TCP_ALLOWED_PORTS]: " input_ports
+    TCP_ALLOWED_PORTS="${input_ports:-$TCP_ALLOWED_PORTS}"
 
     # DNS Provider
     echo ""
-    echo -e "${BOLD}3. DNS Provider for TLS${NC}"
+    echo -e "${BOLD}5. DNS Provider for TLS${NC}"
     echo "   Needed for Let's Encrypt wildcard certificate (DNS-01 challenge)."
     echo "   Supported: cloudflare, digitalocean, route53, manual"
     echo ""
     read -rp "   DNS provider [$DNS_PROVIDER]: " input_dns
     DNS_PROVIDER="${input_dns:-$DNS_PROVIDER}"
+
+    # ---- Validate All Inputs ----
+    log_step "Validating configuration"
+
+    validate_domain "$DOMAIN" || die "Invalid domain: $DOMAIN"
+    validate_hostname "$UPSTREAM_HOST" || die "Invalid upstream hostname: $UPSTREAM_HOST"
+    validate_port "$UPSTREAM_PORT" || die "Invalid upstream port: $UPSTREAM_PORT"
+
+    UPSTREAM_URL="https://${UPSTREAM_HOST}:${UPSTREAM_PORT}"
+    TCP_UPSTREAM_HOST="$UPSTREAM_HOST"
+    # Escape dots for nginx regex
+    DOMAIN_ESCAPED=$(echo "$DOMAIN" | sed 's/\./\\\\./g')
+
+    log_ok "Domain: $DOMAIN"
+    log_ok "Upstream: $UPSTREAM_URL"
+    log_ok "DNS Provider: $DNS_PROVIDER"
+    log_ok "TCP Ports: $TCP_PORT_MIN-$TCP_PORT_MAX (Allowed upstream: $TCP_ALLOWED_PORTS)"
+
+    # ---- Generate Secrets ----
+    log_step "Generating secrets"
+
+    API_KEY=$(generate_password)
+    REDIS_PASSWORD=$(generate_password)
+
+    log_ok "API key generated"
+    log_ok "Redis password generated"
 fi
-
-# ---- Validate All Inputs ----
-log_step "Validating configuration"
-
-[[ -z "$DOMAIN" ]] && die "Domain is required (--domain)"
-[[ -z "$UPSTREAM_HOST" ]] && die "Upstream host is required (--upstream host:port)"
-[[ -z "$UPSTREAM_PORT" ]] && die "Upstream port is required (--upstream host:port)"
-
-validate_domain "$DOMAIN" || die "Invalid domain: $DOMAIN"
-validate_hostname "$UPSTREAM_HOST" || die "Invalid upstream hostname: $UPSTREAM_HOST"
-validate_port "$UPSTREAM_PORT" || die "Invalid upstream port: $UPSTREAM_PORT"
-
-UPSTREAM_URL="https://${UPSTREAM_HOST}:${UPSTREAM_PORT}"
-# Escape dots for nginx regex
-DOMAIN_ESCAPED=$(echo "$DOMAIN" | sed 's/\./\\\\./g')
-
-log_ok "Domain: $DOMAIN"
-log_ok "Upstream: $UPSTREAM_URL"
-log_ok "DNS Provider: $DNS_PROVIDER"
-
-# ---- Generate Secrets ----
-log_step "Generating secrets"
-
-API_KEY=$(generate_password)
-REDIS_PASSWORD=$(generate_password)
-
-log_ok "API key generated"
-log_ok "Redis password generated"
 
 # ---- Install System Packages ----
 log_step "Installing system packages"
@@ -263,6 +232,7 @@ apt-get install -y -qq \
     ufw \
     xxd \
     jq \
+    iptables-persistent \
     2>/dev/null
 
 log_ok "Base packages installed"
@@ -430,6 +400,8 @@ if [[ -f "$SCRIPT_DIR/proxy/conf.d/api.conf" ]]; then
     log_ok "API config generated"
 fi
 
+	# End API config
+
 # Point OpenResty to our config
 mkdir -p /etc/systemd/system/openresty.service.d
 cat > /etc/systemd/system/openresty.service.d/sirius-agent.conf <<EOF
@@ -464,10 +436,11 @@ if [[ -f "$BINARY_PATH" ]]; then
     log_ok "Binary installed: $BINARY_PATH"
 fi
 
-# ---- Write Environment File ----
-log_step "Writing environment configuration"
+if [[ "$UPGRADE_MODE" == false ]]; then
+    # ---- Write Environment File ----
+    log_step "Writing environment configuration"
 
-cat > "$ENV_FILE" <<EOF
+    cat > "$ENV_FILE" <<EOF
 # BenEgeDeniz Sirius Agent - Environment Configuration
 # Generated by install.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # SENSITIVE - do not share or commit this file
@@ -488,44 +461,46 @@ MAX_TUNNEL_DURATION=1440
 RATE_LIMIT_RPM=30
 PROXY_RATE_LIMIT_RPM=600
 LOG_LEVEL=info
+
+TCP_PORT_MIN=${TCP_PORT_MIN}
+TCP_PORT_MAX=${TCP_PORT_MAX}
+TCP_ALLOWED_PORTS=${TCP_ALLOWED_PORTS}
+TCP_UPSTREAM_HOST=${TCP_UPSTREAM_HOST}
 EOF
 
-chmod 600 "$ENV_FILE"
-chown root:root "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    chown root:root "$ENV_FILE"
 
-log_ok "Environment file written: $ENV_FILE"
+    log_ok "Environment file written: $ENV_FILE"
 
-# ---- Install Systemd Service ----
-log_step "Installing systemd service"
+    # ---- Install Systemd Service ----
+    log_step "Installing systemd service"
 
-if [[ -f "$SCRIPT_DIR/systemd/sirius-api.service" ]]; then
-    cp "$SCRIPT_DIR/systemd/sirius-api.service" /etc/systemd/system/sirius-api.service
-fi
+    if [[ -f "$SCRIPT_DIR/systemd/sirius-api.service" ]]; then
+        cp "$SCRIPT_DIR/systemd/sirius-api.service" /etc/systemd/system/sirius-api.service
+    fi
 
-systemctl daemon-reload
-log_ok "Systemd service installed"
+    systemctl daemon-reload
+    log_ok "Systemd service installed"
 
-# ---- TLS Certificate ----
-if [[ "$SKIP_TLS" == false ]]; then
+    # ---- TLS Certificate ----
     log_step "Setting up TLS certificate"
 
     case "$DNS_PROVIDER" in
         cloudflare)
             echo ""
-            if [[ "$NON_INTERACTIVE" == false ]]; then
-                echo -e "${BOLD}Cloudflare API Token${NC}"
-                echo "   Create a token at: https://dash.cloudflare.com/profile/api-tokens"
-                echo "   Required permissions: Zone:DNS:Edit"
-                echo ""
-                read -rsp "   Enter Cloudflare API token: " CF_TOKEN
-                echo ""
+            echo -e "${BOLD}Cloudflare API Token${NC}"
+            echo "   Create a token at: https://dash.cloudflare.com/profile/api-tokens"
+            echo "   Required permissions: Zone:DNS:Edit"
+            echo ""
+            read -rsp "   Enter Cloudflare API token: " CF_TOKEN
+            echo ""
 
-                mkdir -p "$CONFIG_DIR"
-                cat > "$CONFIG_DIR/dns-credentials.ini" <<EOF
+            mkdir -p "$CONFIG_DIR"
+            cat > "$CONFIG_DIR/dns-credentials.ini" <<EOF
 dns_cloudflare_api_token = $CF_TOKEN
 EOF
-                chmod 600 "$CONFIG_DIR/dns-credentials.ini"
-            fi
+            chmod 600 "$CONFIG_DIR/dns-credentials.ini"
 
             if [[ -f "$CONFIG_DIR/dns-credentials.ini" ]]; then
                 certbot certonly \
@@ -559,14 +534,12 @@ HOOK
             ;;
 
         digitalocean)
-            if [[ "$NON_INTERACTIVE" == false ]]; then
-                read -rsp "Enter DigitalOcean API token: " DO_TOKEN
-                echo ""
-                cat > "$CONFIG_DIR/dns-credentials.ini" <<EOF
+            read -rsp "Enter DigitalOcean API token: " DO_TOKEN
+            echo ""
+            cat > "$CONFIG_DIR/dns-credentials.ini" <<EOF
 dns_digitalocean_token = $DO_TOKEN
 EOF
-                chmod 600 "$CONFIG_DIR/dns-credentials.ini"
-            fi
+            chmod 600 "$CONFIG_DIR/dns-credentials.ini"
 
             if [[ -f "$CONFIG_DIR/dns-credentials.ini" ]]; then
                 certbot certonly \
@@ -595,12 +568,8 @@ EOF
             echo "   You will need access to your DNS provider's control panel."
             echo "   Wildcard certificates REQUIRE DNS validation."
             echo ""
-            if [[ "$NON_INTERACTIVE" == false ]]; then
-                read -rp "   Run certbot now? [Y/n] " run_certbot
-                run_certbot="${run_certbot:-Y}"
-            else
-                run_certbot="n"
-            fi
+            read -rp "   Run certbot now? [Y/n] " run_certbot
+            run_certbot="${run_certbot:-Y}"
 
             if [[ "$run_certbot" =~ ^[Yy]$ ]]; then
                 certbot certonly \
@@ -636,29 +605,25 @@ EOF
             log_warn "Please set up TLS manually"
             ;;
     esac
-else
-    log_info "TLS setup skipped (--skip-tls)"
-    log_info "Place certificates at:"
-    log_info "  $TLS_DIR/fullchain.pem"
-    log_info "  $TLS_DIR/privkey.pem"
+
+    # ---- Firewall ----
+    log_step "Configuring firewall"
+
+    ufw --force reset 2>/dev/null || true
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow ssh
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw allow ${TCP_PORT_MIN}:${TCP_PORT_MAX}/tcp
+
+    # Explicitly deny Redis from outside
+    ufw deny 6379/tcp
+
+    ufw --force enable
+
+    log_ok "Firewall configured (SSH, HTTP, HTTPS allowed)"
 fi
-
-# ---- Firewall ----
-log_step "Configuring firewall"
-
-ufw --force reset 2>/dev/null || true
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 80/tcp
-ufw allow 443/tcp
-
-# Explicitly deny Redis from outside
-ufw deny 6379/tcp
-
-ufw --force enable
-
-log_ok "Firewall configured (SSH, HTTP, HTTPS allowed)"
 
 # ---- Start Services ----
 log_step "Starting services"
@@ -734,6 +699,32 @@ echo "  List tunnels:"
 echo "    curl https://$DOMAIN/api/tunnels \\"
 echo "      -H 'Authorization: Bearer $API_KEY'"
 echo ""
+echo "  List TCP tunnels:"
+echo "    curl https://$DOMAIN/api/tunnels/tcp \\"
+echo "      -H 'Authorization: Bearer $API_KEY'"
+echo ""
+echo "  Create TCP tunnel (SSH, 10 min, any IP):"
+echo "    curl -X POST https://$DOMAIN/api/tunnels/tcp \\"
+echo "      -H 'Authorization: Bearer $API_KEY' \\"
+echo "      -H 'Content-Type: application/json' \\"
+echo "      -d '{\"duration\": 10, \"upstream_port\": 22}'"
+echo ""
+echo "  Create TCP tunnel (MySQL, allow specific IPs):"
+echo "    curl -X POST https://$DOMAIN/api/tunnels/tcp \\"
+echo "      -H 'Authorization: Bearer $API_KEY' \\"
+echo "      -H 'Content-Type: application/json' \\"
+echo "      -d '{\"duration\": 30, \"upstream_port\": 3306, \"allowed_ips\": [\"1.2.3.4\"]}'"
+echo ""
+echo "  Extend TCP tunnel (add 30 min):"
+echo "    curl -X PATCH https://$DOMAIN/api/tunnels/tcp/PORT \\"
+echo "      -H 'Authorization: Bearer $API_KEY' \\"
+echo "      -H 'Content-Type: application/json' \\"
+echo "      -d '{\"additional_minutes\": 30}'"
+echo ""
+echo "  Delete TCP tunnel:"
+echo "    curl -X DELETE https://$DOMAIN/api/tunnels/tcp/PORT \\"
+echo "      -H 'Authorization: Bearer $API_KEY'"
+echo ""
 echo "  Health check:"
 echo "    curl https://$DOMAIN/api/health"
 echo ""
@@ -742,7 +733,4 @@ echo "  systemctl status sirius-api"
 echo "  systemctl status openresty"
 echo "  systemctl status redis-server"
 echo "  journalctl -u sirius-api -f"
-echo ""
-echo -e "${BOLD}Health check:${NC}"
-echo "  bash /opt/sirius-agent/scripts/health-check.sh"
 echo ""
