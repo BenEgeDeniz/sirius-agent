@@ -56,17 +56,24 @@ func ValidateAllowedIPs(ips []string) error {
 	return nil
 }
 
-// NormalizeAllowedIPs cleans up the allowed IPs list.
+// NormalizeAllowedIPs cleans up the allowed IPs list and canonicalizes IPs.
 func NormalizeAllowedIPs(ips []string) []string {
 	if len(ips) == 0 {
 		return []string{"any"}
 	}
+	
+	var normalized []string
 	for _, ip := range ips {
 		if ip == "any" || ip == "*" {
 			return []string{"any"}
 		}
+		if parsed := net.ParseIP(ip); parsed != nil {
+			normalized = append(normalized, parsed.String())
+		} else {
+			normalized = append(normalized, ip)
+		}
 	}
-	return ips
+	return normalized
 }
 
 // CreateTunnel generates a new ephemeral tunnel.

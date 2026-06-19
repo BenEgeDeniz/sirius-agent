@@ -81,6 +81,8 @@ func (m *TCPProxyManager) StartProxy(port int) error {
 }
 
 // StopProxy closes the listener for the specified port.
+// Note: Active connections are intentionally left open to drain naturally 
+// so we do not abruptly interrupt active SSH or FTP sessions.
 func (m *TCPProxyManager) StopProxy(port int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -144,24 +146,45 @@ func (m *TCPProxyManager) handleConnection(clientConn net.Conn, port int) {
 
 	m.logger.Info("TCP proxied", "client", clientIP, "port", port, "upstream", upstreamAddr)
 
-	// 4. Proxy traffic
-	errc := make(chan error, 2)
+	// Enable TCP KeepAlives to prevent ghost connections from lingering indefinitely
+	if tcpClientConn, ok := clientConn.(*net.TCPConn); ok {
+		tcpClientConn.SetKeepAlive(true)
+		tcpClientConn.SetKeepAlivePeriod(1 * time.Minute)
+	}
+	if tcpUpstreamConn, ok := upstreamConn.(*net.TCPConn); ok {
+		tcpUpstreamConn.SetKeepAlive(true)
+		tcpUpstreamConn.SetKeepAlivePeriod(1 * time.Minute)
+	}
+
+	// 4. Proxy traffic (with half-close support)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	go func() {
-		_, err := io.Copy(upstreamConn, clientConn)
-		errc <- err
+		defer wg.Done()
+		io.Copy(upstreamConn, clientConn)
+		if tcpUpstream, ok := upstreamConn.(*net.TCPConn); ok {
+			tcpUpstream.CloseWrite()
+		}
 	}()
 	go func() {
-		_, err := io.Copy(clientConn, upstreamConn)
-		errc <- err
+		defer wg.Done()
+		io.Copy(clientConn, upstreamConn)
+		if tcpClient, ok := clientConn.(*net.TCPConn); ok {
+			tcpClient.CloseWrite()
+		}
 	}()
 
-	<-errc // Wait for one side to close
+	wg.Wait()
 }
 
 func extractRawIP(addr string) string {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return addr
+		host = addr
+	}
+	if parsed := net.ParseIP(host); parsed != nil {
+		return parsed.String()
 	}
 	return host
 }
