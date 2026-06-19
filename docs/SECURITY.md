@@ -21,7 +21,7 @@
 
 ### Anti-SSRF
 HTTP Upstream is hardcoded in nginx at install time via `proxy_pass`. Users control only `duration` and `allowed_ips`.
-TCP Upstreams are restricted by the `TCP_ALLOWED_PORTS` environment variable. Users cannot forward traffic to arbitrary ports unless explicitly configured to allow it using a wildcard (`*`, `any`, or `all`).
+TCP Upstreams are restricted by the `TCP_ALLOWED_PORTS` environment variable, which can include specific ports, port ranges, or wildcards to allow all.
 
 ### Rate Limiting
 

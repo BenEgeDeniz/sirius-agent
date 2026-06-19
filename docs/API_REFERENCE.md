@@ -482,5 +482,5 @@ These environment variables control the API behavior:
 | `UPSTREAM_URL` | — | Upstream HTTPS URL (required) |
 | `TCP_PORT_MIN` | `50000` | Start of ephemeral TCP port range |
 | `TCP_PORT_MAX` | `60000` | End of ephemeral TCP port range |
-| `TCP_ALLOWED_PORTS`| `22` | Comma-separated list of allowed upstream ports (use `*`, `any`, or `all` for any port) |
+| `TCP_ALLOWED_PORTS`| `22` | Comma-separated list of allowed upstream ports and ranges (e.g., `22,4000-5000`, or `*` for any) |
 | `TCP_UPSTREAM_HOST`| — | Upstream host for TCP forwarding (supports IPv4, IPv6, and hostnames) |

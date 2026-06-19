@@ -61,7 +61,7 @@ validate_domain() {
 
 validate_hostname() {
     local host="$1"
-    if [[ ! "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]; then
+    if [[ ! "$host" =~ ^[a-zA-Z0-9.:-]+$ ]]; then
         return 1
     fi
     return 0
@@ -154,7 +154,7 @@ if [[ "$UPGRADE_MODE" == false ]]; then
         if validate_hostname "$UPSTREAM_HOST"; then
             break
         fi
-        log_error "Invalid hostname. Use letters, numbers, and hyphens only."
+        log_error "Invalid hostname or IP. Use letters, numbers, dots, and hyphens."
     done
 
     while true; do
@@ -176,7 +176,7 @@ if [[ "$UPGRADE_MODE" == false ]]; then
     read -rp "   Enter TCP port range end [$TCP_PORT_MAX]: " input_max
     TCP_PORT_MAX="${input_max:-$TCP_PORT_MAX}"
     
-    read -rp "   Enter allowed upstream ports (comma-separated, use * for any) [$TCP_ALLOWED_PORTS]: " input_ports
+    read -rp "   Enter allowed upstream ports (e.g. 22, 3306, 4000-5000, or * for any) [$TCP_ALLOWED_PORTS]: " input_ports
     TCP_ALLOWED_PORTS="${input_ports:-$TCP_ALLOWED_PORTS}"
 
     # DNS Provider

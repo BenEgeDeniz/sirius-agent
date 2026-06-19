@@ -88,6 +88,20 @@ func LoadConfig() (*Config, error) {
 				cfg.TCPAllowedPorts = append(cfg.TCPAllowedPorts, 0)
 				continue
 			}
+			if strings.Contains(p, "-") {
+				parts := strings.SplitN(p, "-", 2)
+				minStr := strings.TrimSpace(parts[0])
+				maxStr := strings.TrimSpace(parts[1])
+				minPort, err1 := strconv.Atoi(minStr)
+				maxPort, err2 := strconv.Atoi(maxStr)
+				if err1 != nil || err2 != nil || minPort < 1 || maxPort > 65535 || minPort > maxPort {
+					return nil, fmt.Errorf("invalid TCP_ALLOWED_PORTS range: %s", p)
+				}
+				for i := minPort; i <= maxPort; i++ {
+					cfg.TCPAllowedPorts = append(cfg.TCPAllowedPorts, i)
+				}
+				continue
+			}
 			portInt, err := strconv.Atoi(p)
 			if err != nil || portInt < 1 || portInt > 65535 {
 				return nil, fmt.Errorf("invalid TCP_ALLOWED_PORTS value: %s", p)
